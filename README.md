@@ -9,7 +9,9 @@ A python application to convert a Spotify playlist to an M3U file. Performs a se
 - Folder names or song title tags must be an exact match to Spotify's naming scheme.
 
 ## Setup
-If you have an existing Spotify account, you also need to sign up for a Spotify developer account and create an app. Once you have your client id and key, create a `client_info.env` file like the example `client_info.example.env`
+If you have an existing Spotify account, you also need to sign up for a Spotify developer account and create an app. 
+
+Once you have your client id and key, create a `client_info.env` file like the example `client_info.example.env`
 
 ## Dependencies
 You must have python 3.6+ installed.
@@ -18,12 +20,10 @@ To install the dependencies run:
 `pip3 install -r requirements.txt`
 
 ## Usage
-Enter the Spotify playlist link: 
-
+Enter the Spotify playlist link: \
 `https://open.spotify.com/playlist/37i9dQZF1DXafCT9DHTijq?si=aa70b201f5704aba`
 
-Enter the absolute path: 
-
+Enter the absolute path: \
 `C:/Users/username/Music/classical`
 
-Your .m3u will be output to the folder your python script is located in.
+Your .m3u will be output to the folder your python script is located in. Any tracks that could not be found will be printed to terminal.
