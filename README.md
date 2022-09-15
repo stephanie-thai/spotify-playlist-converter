@@ -1,12 +1,13 @@
 # Spotify Playlist Converter
 A python application to convert a Spotify playlist to an M3U file. Performs a search based on the matching .mp3 ID3 tag.
+Sequence based string matching is used when exact string matches cannot be found.
 
 ## Pre-requisites
 - The spotify playlist must be public.
 - Music files must be in **.mp3 format**.
 - Your music folder structure must be in the form: `Artist/Album/Song` OR `Artist/Song` OR `Song`
   - Album folder can also be named as `Artist - Album`.
-- Folder names or song title tags must be an exact match to Spotify's naming scheme.
+- Folder names or song title tags must have a high similarity to Spotify's naming scheme.
 
 ## Setup
 If you have an existing Spotify account, you also need to sign up for a Spotify developer account and create an app. 

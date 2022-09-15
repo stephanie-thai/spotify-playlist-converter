@@ -1,6 +1,7 @@
 import os
 import glob
 from pathlib import Path
+from difflib import SequenceMatcher
 
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -20,27 +21,33 @@ secret = config["SPOTIPY_CLIENT_SECRET"]
 auth_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
 sp = spotipy.Spotify(auth_manager=auth_manager)
 
+def similar(a, b):
+    """ check string similarity ratio """
+    return SequenceMatcher(None, a.casefold(), b.casefold()).ratio() > 0.8
+
 def get_album_folder(artist_folder, artist_name, album_name):
     """ Get album folder path from format 'album' or 'artist - album' """
-    album_folder = artist_folder / album_name
-    # combined artist - album name
-    artist_alb_name = artist_name + ' - ' + album_name
-    artist_album_folder = artist_folder / artist_alb_name
-
-    # Check album folder exists
     song_parent_folder = None
-    if os.path.isdir(album_folder):
-        song_parent_folder = album_folder
-    elif os.path.isdir(artist_album_folder):
-        song_parent_folder = artist_album_folder
+    # get all album folder names
+    albums = next(os.walk(artist_folder))[1]
+    # convert album to lowercase
+    orig_str = artist_name + ' - ' + album_name
+    for alb_folder in albums:
+        # combined artist - album name
+        art_alb_str = artist_name + ' - ' + alb_folder
+        if alb_folder == orig_str or alb_folder == album_name or similar(art_alb_str, orig_str) or similar(alb_folder, album_name):
+            song_parent_folder = artist_folder / alb_folder
+            break
 
     return song_parent_folder
 
-def song_dir_search(folder_path, track_name):
+def song_search(folder_path, track_name, ratio):
     """
         Linear search for song in the album or artist folder based on the ID3
         track title tag for .mp3 files
+        If exact track name not found, get highest similarity scored song for given ratio
     """
+    # exact match song
     filenames = glob.glob(folder_path + "/*.mp3")
     track_info = None
     new_path = None
@@ -48,7 +55,7 @@ def song_dir_search(folder_path, track_name):
         audio = EasyID3(song_file)
         if "artist" not in audio or "title" not in audio:
             continue
-
+        # check track name
         if track_name == audio["title"][0]:
             song_length = None
             if "length" not in audio:
@@ -61,6 +68,31 @@ def song_dir_search(folder_path, track_name):
             new_path = song_file.replace(os.sep, '/')
 
             break
+
+    # get highest similarity song > ratio
+    if not track_info:
+        songs = next(os.walk(folder_path))[2]
+        max_sim = ratio
+        matching_song = None
+        for song in songs:
+            sim = SequenceMatcher(None, song, track_name).ratio()
+            if sim > max_sim:
+                max_sim = sim
+                matching_song = song
+        if matching_song and matching_song.endswith('.mp3'):
+            song_file = folder_path + '\\' + matching_song
+            audio = EasyID3(song_file)
+            if "artist" in audio and "title" in audio:
+                song_length = None
+                if "length" not in audio:
+                    audio_MP3 = MP3(song_file)
+                    song_length = round(audio_MP3.info.length * 1000)
+                else:
+                    song_length = audio["length"][0]
+
+                track_info = "#EXTINF:{},{} - {}".format(song_length, audio["artist"][0], audio["title"][0])
+                new_path = song_file.replace(os.sep, '/')
+
     return track_info, new_path
 
 def song_dict_search(track_list, track_name, artist_name):
@@ -68,7 +100,8 @@ def song_dict_search(track_list, track_name, artist_name):
     track_info = None
     new_path = None
     for track_dict in track_list:
-        if track_name == track_dict["title"]:
+        # string similarity
+        if track_name == track_dict["title"] or similar(track_name, track_dict["title"]):
             track_info = "#EXTINF:{},{} - {}".format(track_dict["length"], artist_name, track_name)
             new_path = track_dict["location"].replace(os.sep, '/')
             break
@@ -136,8 +169,12 @@ def convert_playlist(playlist_link, root_search_dir):
     # Call spotify web api
     playlist_URI = playlist_link.split("/")[-1].split("?")[0]
     try:
-        # get playlist tracks
-        spotify_tracks = sp.playlist_tracks(playlist_URI)["items"]
+        # get playlist tracks, limit=100 so extend
+        res = sp.playlist_tracks(playlist_URI)
+        spotify_tracks = res["items"]
+        while res['next']:
+            res = sp.next(res)
+            spotify_tracks.extend(res['items'])
     except spotipy.exceptions.SpotifyException as e:
         print("Error: Playlist link inaccessible")
         return
@@ -150,8 +187,8 @@ def convert_playlist(playlist_link, root_search_dir):
 
     fail_output = "The following tracks could not be found: \n"
 
-    # Construct hash table of mp3 files in the root directory excluding sub folders
-    artist_song_dict = construct_artist_song_dict(root_search_dir)
+    # Construct hash table of JUST mp3 files in the root directory (excluding sub folders)
+    root_artist_song_dict = construct_artist_song_dict(root_search_dir)
 
     index = 0
     for track in spotify_tracks:
@@ -160,36 +197,42 @@ def convert_playlist(playlist_link, root_search_dir):
         track_name = track["track"]["name"]
         album_name = track["track"]["album"]["name"]
 
-        # Check Artist folder exists
+        # 1 Skip track if Spotify Artist folder does not exist
         artist_folder = root_search_dir / artist_name
         if not os.path.isdir(artist_folder):
-            # Else search hash table of root folder
-            if artist_name in artist_song_dict:
-                track_list = artist_song_dict[artist_name]
+            # search artist exact match from just files in the root
+            found = False
+            if artist_name in root_artist_song_dict:
+                found = True
+            # else check similar artist name just files in the root
+            else:
+                for artist in root_artist_song_dict.keys():
+                    if (similar(artist_name, artist)):
+                        found = True
+            if found:
+                track_list = root_artist_song_dict[artist_name]
                 track_info, new_path = song_dict_search(track_list, track_name, artist_name)
                 if track_info:
                     m3u_lines.append(track_info)
                     m3u_lines.append(new_path)
-                else:
-                    fail_output += "{} - {}\n".format(str(index), track_name)
             else:
                 fail_output += "{} - {}\n".format(str(index), track_name)
             continue
 
         album_folder = get_album_folder(artist_folder, artist_name, album_name)
-        # Album folder does not exist
+        # 2 Skip if Album folder does not exist
         if not album_folder:
             # Else search in Artist directory
-            track_info, new_path = song_dir_search(str(artist_folder), track_name)
+            track_info, new_path = song_search(str(artist_folder), track_name, 0.6)
             if track_info:
                 m3u_lines.append(track_info)
                 m3u_lines.append(new_path)
             else:
-                fail_output += "{} - {}\n".format(str(index), track_name)
+                fail_output += "{} - {} \n".format(str(index), track_name)
             continue
 
-        # Search in Album directory
-        track_info, new_path = song_dir_search(str(album_folder), track_name)
+        # 3 Search for track in Artist / Album directory
+        track_info, new_path = song_search(str(album_folder), track_name, 0.1)
         if track_info:
             m3u_lines.append(track_info)
             m3u_lines.append(new_path)
@@ -197,12 +240,12 @@ def convert_playlist(playlist_link, root_search_dir):
             fail_output += "{} - {}\n".format(str(index), track_name)
 
     create_m3u(playlist_name, m3u_lines)
-
+    fail_num = fail_output.count('\n') - 1
+    print("Total failed tracks: {}\n".format(fail_num))
     print(fail_output)
 
 if __name__ == "__main__":
     spotify_link = input('Enter Spotify playlist link: ')
     root_path = input('Enter the path to your songs folder: ')
-    print('\n')
 
     convert_playlist(spotify_link, root_path)
