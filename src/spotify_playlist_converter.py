@@ -41,6 +41,25 @@ def get_album_folder(artist_folder, artist_name, album_name):
 
     return song_parent_folder
 
+def get_track_info(audio, song_file):
+    """
+        Format a track and its metadata for the playlist
+    """
+    track_info = None
+    new_path = None
+
+    song_length = None
+    if "length" not in audio:
+        audio_MP3 = MP3(song_file)
+        song_length = round(audio_MP3.info.length * 1000)
+    else:
+        song_length = audio["length"][0]
+
+    track_info = "#EXTINF:{},{} - {}".format(song_length, audio["artist"][0], audio["title"][0])
+    new_path = song_file.replace(os.sep, '/')
+
+    return track_info, new_path
+
 def song_search(folder_path, track_name, ratio):
     """
         Linear search for song in the album or artist folder based on the ID3
@@ -57,17 +76,7 @@ def song_search(folder_path, track_name, ratio):
             continue
         # check track name
         if track_name == audio["title"][0]:
-            song_length = None
-            if "length" not in audio:
-                audio_MP3 = MP3(song_file)
-                song_length = round(audio_MP3.info.length * 1000)
-            else:
-                song_length = audio["length"][0]
-
-            track_info = "#EXTINF:{},{} - {}".format(song_length, audio["artist"][0], audio["title"][0])
-            new_path = song_file.replace(os.sep, '/')
-
-            break
+            return get_track_info(audio, song_file)
 
     # get highest similarity song > ratio
     if not track_info:
@@ -83,15 +92,7 @@ def song_search(folder_path, track_name, ratio):
             song_file = folder_path + '\\' + matching_song
             audio = EasyID3(song_file)
             if "artist" in audio and "title" in audio:
-                song_length = None
-                if "length" not in audio:
-                    audio_MP3 = MP3(song_file)
-                    song_length = round(audio_MP3.info.length * 1000)
-                else:
-                    song_length = audio["length"][0]
-
-                track_info = "#EXTINF:{},{} - {}".format(song_length, audio["artist"][0], audio["title"][0])
-                new_path = song_file.replace(os.sep, '/')
+                return get_track_info(audio, song_file)
 
     return track_info, new_path
 
