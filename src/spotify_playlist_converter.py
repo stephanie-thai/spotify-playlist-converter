@@ -23,6 +23,7 @@ sp = spotipy.Spotify(auth_manager=auth_manager)
 
 def similar(a, b):
     """ check string similarity ratio """
+    # convert album to lowercase
     return SequenceMatcher(None, a.casefold(), b.casefold()).ratio() > 0.8
 
 def get_album_folder(artist_folder, artist_name, album_name):
@@ -30,7 +31,6 @@ def get_album_folder(artist_folder, artist_name, album_name):
     song_parent_folder = None
     # get all album folder names
     albums = next(os.walk(artist_folder))[1]
-    # convert album to lowercase
     orig_str = artist_name + ' - ' + album_name
     for alb_folder in albums:
         # combined artist - album name
@@ -60,13 +60,13 @@ def get_track_info(audio, song_file):
 
     return track_info, new_path
 
-def song_search(folder_path, track_name, ratio):
+def song_search(folder_path, track_name, threshold):
     """
         Linear search for song in the album or artist folder based on the ID3
         track title tag for .mp3 files
-        If exact track name not found, get highest similarity scored song for given ratio
+        If exact track name not found, get highest similarity scored song for given ratio threshold
     """
-    # exact match song
+    # Exact match song
     filenames = glob.glob(folder_path + "/*.mp3")
     track_info = None
     new_path = None
@@ -74,25 +74,25 @@ def song_search(folder_path, track_name, ratio):
         audio = EasyID3(song_file)
         if "artist" not in audio or "title" not in audio:
             continue
-        # check track name
+        # Check track name
         if track_name == audio["title"][0]:
             return get_track_info(audio, song_file)
 
-    # get highest similarity song > ratio
-    if not track_info:
-        songs = next(os.walk(folder_path))[2]
-        max_sim = ratio
-        matching_song = None
-        for song in songs:
-            sim = SequenceMatcher(None, song, track_name).ratio()
-            if sim > max_sim:
-                max_sim = sim
-                matching_song = song
-        if matching_song and matching_song.endswith('.mp3'):
-            song_file = folder_path + '\\' + matching_song
-            audio = EasyID3(song_file)
-            if "artist" in audio and "title" in audio:
-                return get_track_info(audio, song_file)
+    # Else get the highest similarity song > ratio threshold
+    songs = next(os.walk(folder_path))[2]
+    # calculate similarities
+    f_ratio = lambda song : {song: SequenceMatcher(None, song.casefold(), track_name.casefold()).ratio()}
+    sims = [f_ratio(s) for s in songs]
+    # get key value pair for highest similarity
+    max_sim = max(sims, key=lambda x: list(x.values()))
+    max_ratio = next(iter(max_sim.values()))
+    matching_song = next(iter(max_sim.keys()))
+    # Error check
+    if max_ratio > threshold and matching_song.endswith('.mp3'):
+        song_file = folder_path + '\\' + matching_song
+        audio = EasyID3(song_file)
+        if "artist" in audio and "title" in audio:
+            return get_track_info(audio, song_file)
 
     return track_info, new_path
 
@@ -210,6 +210,8 @@ def convert_playlist(playlist_link, root_search_dir):
                 for artist in root_artist_song_dict.keys():
                     if (similar(artist_name, artist)):
                         found = True
+                        break
+            # Output success or fail
             if found:
                 track_list = root_artist_song_dict[artist_name]
                 track_info, new_path = song_dict_search(track_list, track_name, artist_name)
@@ -224,7 +226,7 @@ def convert_playlist(playlist_link, root_search_dir):
         # 2 Skip if Album folder does not exist
         if not album_folder:
             # Else search in Artist directory
-            track_info, new_path = song_search(str(artist_folder), track_name, 0.6)
+            track_info, new_path = song_search(str(artist_folder), track_name, 0.15)
             if track_info:
                 m3u_lines.append(track_info)
                 m3u_lines.append(new_path)
